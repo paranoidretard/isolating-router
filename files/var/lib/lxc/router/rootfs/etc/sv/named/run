@@ -1,0 +1,10 @@
+#!/bin/sh
+
+exec 1>&2
+
+if [ -e /etc/runit/verbose ]; then
+        echo "invoke-run: starting ${PWD##*/}"
+fi
+
+[ -f /etc/default/named ] && . /etc/default/named
+exec /usr/sbin/named -f $OPTIONS

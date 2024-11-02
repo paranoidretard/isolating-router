@@ -1,0 +1,96 @@
+#!/bin/sh
+
+create_container_interfaces()
+{
+    #####################################
+    # create veth pairs for LXC container
+
+    # public side
+    ip link add dev router_out address 02:00:c0:a8:c8:02 type veth peer name router_pub address 02:00:c0:a8:c8:01
+
+    # public side, transit traffic:
+    ip link add dev router_tr_in address 02:00:c0:a8:c9:02 type veth peer name router_transit address 02:00:c0:a8:c9:01
+
+    # private side
+    ip link add dev router_in address 02:00:c0:a8:00:01 type veth peer name router_br address 02:bb:c0:a8:00:01 netns private
+
+    # iot interconnection
+    ip link add dev router_itr_in address 02:00:c0:a8:ca:01 type veth peer name router_itransit address 02:00:c0:a8:ca:02 netns iot
+
+    # connect to the bridge
+    ip -n private link set router_br master br0
+    ip -n private link set router_br up
+
+    #####################################
+    # configure IP addresses and routes
+
+    # public side
+    ip address add 192.168.200.1 dev router_pub
+    ip link set router_pub up
+    ip route add 192.168.200.0/24 dev router_pub
+
+    # transit
+    ip address add 192.168.201.1 dev router_transit
+    ip link set router_transit up
+    ip route add 192.168.201.0/24 dev router_transit
+
+    ip -n iot address add 192.168.202.2 dev router_itransit
+    ip -n iot link set router_itransit up
+    ip -n iot route add 192.168.202.0/24 dev router_itransit
+    ip -n iot route replace default via 192.168.202.1 dev router_itransit
+
+    # use separate table to route transit traffic to the router container
+    ip route add 192.168.201.0/24 dev router_transit table 1
+    ip route add default via 192.168.201.2 dev router_transit table 1
+
+    ip rule add fwmark 0x6aea table 1 pref 100 >/dev/null 2>&1 || true
+
+    # reload nftables
+    /etc/nftables.conf
+    # more rules:
+    nft add rule nat postrouting oif \{ router_transit, router_pub \} masquerade random,persistent
+    # ISP web interface DNAT
+    nft add rule nat prerouting iif router_pub ip daddr 192.168.200.1 tcp dport 80 dnat to 192.168.0.1
+}
+
+add_container_routes()
+{
+    # This procedure is executed in container's namespace.
+    # things would be simpler if LXC container config had a route
+    # parameter but they don't want to implement that
+    # https://github.com/lxc/lxc/issues/496
+
+    return
+}
+
+delete_container_interfaces()
+{
+    ip link del dev router_out
+    ip link del dev router_in
+    ip link del dev router_tr_in
+    ip link del dev router_itr_in
+
+    # reload nftables
+    /etc/nftables.conf
+}
+
+ACTION=$1
+shift
+case $ACTION in
+(create-container-interfaces)
+    set -e
+    trap 'delete_container_interfaces "$@"' EXIT
+    create_container_interfaces "$@"
+    trap '' EXIT
+    ;;
+(add-container-routes)
+    add_container_routes "$@"
+    ;;
+(delete-container-interfaces)
+    delete_container_interfaces "$@"
+    ;;
+(*)
+    echo >&2 "Usage: $0 {create-container-interfaces|add-container-routes|delete-container-interfaces}"
+    exit 3
+    ;;
+esac

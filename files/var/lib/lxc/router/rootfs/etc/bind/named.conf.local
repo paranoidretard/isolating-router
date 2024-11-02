@@ -1,0 +1,26 @@
+//
+// Do any local configuration here
+//
+
+// Consider adding the 1918 zones here, if they are not used in your
+// organization
+//include "/etc/bind/zones.rfc1918";
+
+zone "rpz-home" {
+    type master;
+    file "/etc/bind/rpz-home.db";
+    allow-transfer { 192.168/16; };
+    notify yes;
+};
+
+zone "rpz-filter" {
+    type master;
+    file "/etc/bind/rpz-filter.db";
+    allow-transfer { 192.168/16; };
+    notify yes;
+};
+
+zone "onion" {
+    type primary;
+    file "/etc/bind/onion.db";
+};

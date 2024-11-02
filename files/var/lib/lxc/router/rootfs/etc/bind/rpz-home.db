@@ -1,0 +1,16 @@
+$TTL 1w
+@ IN SOA localhost. root.localhost. (
+         3   ; serial
+         2w  ; refresh
+         2w  ; retry
+         2w  ; expiry
+         2w) ; minimum
+     IN NS localhost.
+
+localhost          A   127.0.0.1
+
+; physical machines
+irouter            A   192.168.0.2
+rpi2               A   192.168.0.201
+rpi3               A   192.168.0.250
+rpi4               A   192.168.0.253

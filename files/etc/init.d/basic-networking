@@ -1,0 +1,239 @@
+#!/bin/bash
+### BEGIN INIT INFO
+# Provides:          basic-networking
+# Required-Start:    $local_fs
+# Required-Stop:     $local_fs
+# Should-Start:      $network
+# Default-Start:     S
+# Default-Stop:      0 6
+# Short-Description: Basic networking configuration.
+### END INIT INFO
+
+IP_ADDRESS=
+NETWORK=
+
+PUBLIC_INTERFACE=
+PRIVATE_INTERFACE=
+
+PRIVATE_BRIDGE=
+PRIVATE_BRIDGE_MACADDR=
+
+VETH_PRIVATE_MACADDR=
+VETH_PRIVATE_BR_MACADDR=
+
+VETH_SSH_NET=
+
+VETH_SSH_LSNR_ADDR=
+VETH_SSH_LSNR_MACADDR=
+
+VETH_SSH_ADDR=
+VETH_SSH_MACADDR=
+
+IOT_WG_NET=
+IOT_WG_ADDRESS=
+
+. /etc/default/basic-networking
+
+. /lib/lsb/init-functions
+
+create_netns()
+{
+    NS=$1
+
+    ip netns add $NS
+    # bring loopback up to make ping working
+    ip -n $NS link set lo up
+    # set networking params same as in the root namespace
+    ip netns exec $NS sysctl --pattern '^net' --system >/dev/null
+}
+
+create_interfaces()
+{
+    # create namespaces
+    create_netns private
+    create_netns ssh_dnat
+    create_netns iot
+    create_netns dnat_201
+    create_netns dnat_250
+    create_netns dnat_253
+
+    # create bridge
+    ip -n private link add name $PRIVATE_BRIDGE address $PRIVATE_BRIDGE_MACADDR type bridge
+
+    # create veth interfaces
+    ip            link add dev veth_ssh_lsnr   address $VETH_SSH_LSNR_MACADDR   type veth peer name veth_ssh     address $VETH_SSH_MACADDR     netns ssh_dnat
+    ip -n private link add dev veth_private_br address $VETH_PRIVATE_BR_MACADDR type veth peer name veth_private address $VETH_PRIVATE_MACADDR netns ssh_dnat
+
+    #   interfaces for rpi2 DNAT
+    ip            link add dev dnat_201_pub address 02:00:c0:a8:65:02 type veth peer name dnat_201_out address 02:00:c0:a8:65:01 netns dnat_201
+    ip -n private link add dev dnat_201_br  address 02:00:c0:a8:00:c9 type veth peer name dnat_201_in  address 02:bb:c0:a8:00:c9 netns dnat_201
+
+    #   interfaces for rpi3 DNAT
+    ip            link add dev dnat_250_pub address 02:00:c0:a8:96:02 type veth peer name dnat_250_out address 02:00:c0:a8:96:01 netns dnat_250
+    ip -n private link add dev dnat_250_br  address 02:00:c0:a8:00:fa type veth peer name dnat_250_in  address 02:bb:c0:a8:00:fa netns dnat_250
+
+    #   interfaces for rpi4 DNAT
+    ip            link add dev dnat_253_pub address 02:00:c0:a8:99:02 type veth peer name dnat_253_out address 02:00:c0:a8:99:01 netns dnat_253
+    ip -n private link add dev dnat_253_br  address 02:00:c0:a8:00:fd type veth peer name dnat_253_in  address 02:bb:c0:a8:00:fd netns dnat_253
+
+    # create IoT wireguard interface
+    ip link add wg0 type wireguard
+    ip link set wg0 netns iot
+    ip -n iot address add $IOT_WG_ADDRESS dev wg0
+    ip netns exec iot wg setconf wg0 <(wg-quick strip wg0)
+    ip -n iot link set wg0 up
+    ip -n iot route add $IOT_WG_NET dev wg0
+}
+
+delete_interfaces()
+{
+    set +e
+
+    ip -n iot link del wg0
+
+    # for veth, it's sufficient to delete one to delete entire pair
+    ip            link del dev veth_ssh_lsnr
+    ip -n private link del dev veth_private_br
+    ip -n private link del dev dnat_201_br
+    ip -n private link del dev dnat_250_br
+    ip -n private link del dev dnat_253_br
+    ip            link del dev dnat_201_pub
+    ip            link del dev dnat_250_pub
+    ip            link del dev dnat_253_pub
+    ip -n private link del dev br0
+
+    # delete namespaces
+    ip netns del dnat_253
+    ip netns del dnat_250
+    ip netns del dnat_201
+    ip netns del iot
+    ip netns del ssh_dnat
+    ip netns del private
+}
+
+networking_is_up()
+{
+    if [ -e /run/netns/ssh_dnat ] ; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+configure_networking()
+{
+    # make up the bridge
+    ip link set $PRIVATE_INTERFACE netns private
+    ip -n private link set $PRIVATE_INTERFACE master br0
+    ip -n private link set $PRIVATE_INTERFACE up
+
+    # setup private veth pair
+    ip -n ssh_dnat address add $IP_ADDRESS dev veth_private
+    ip -n ssh_dnat link set veth_private up
+    ip -n private  link set veth_private_br master $PRIVATE_BRIDGE
+    ip -n private  link set veth_private_br up
+
+    # setup ssh veth pair
+    ip -n ssh_dnat address add $VETH_SSH_ADDR dev veth_ssh
+    ip -n ssh_dnat link set veth_ssh up
+    ip address add $VETH_SSH_LSNR_ADDR dev veth_ssh_lsnr
+    ip link set veth_ssh_lsnr up
+
+    ip             route add $VETH_SSH_NET dev veth_ssh_lsnr
+    ip -n ssh_dnat route add $VETH_SSH_NET dev veth_ssh
+    ip -n ssh_dnat route add $NETWORK      dev veth_private
+
+    # setup DNAT pairs
+    ip             address add 192.168.101.1/24 dev dnat_201_pub
+    ip             link set dnat_201_pub up
+    ip -n dnat_201 address add 192.168.101.2/24 dev dnat_201_out
+    ip -n dnat_201 link set dnat_201_out up
+    ip -n dnat_201 address add 192.168.0.201/24 dev dnat_201_in
+    ip -n dnat_201 link set dnat_201_in up
+    ip -n private  link set dnat_201_br master $PRIVATE_BRIDGE
+    ip -n private  link set dnat_201_br up
+
+    ip             address add 192.168.150.1/24 dev dnat_250_pub
+    ip             link set dnat_250_pub up
+    ip -n dnat_250 address add 192.168.150.2/24 dev dnat_250_out
+    ip -n dnat_250 link set dnat_250_out up
+    ip -n dnat_250 address add 192.168.0.250/24 dev dnat_250_in
+    ip -n dnat_250 link set dnat_250_in up
+    ip -n private  link set dnat_250_br master $PRIVATE_BRIDGE
+    ip -n private  link set dnat_250_br up
+
+    ip             address add 192.168.153.1/24 dev dnat_253_pub
+    ip             link set dnat_253_pub up
+    ip -n dnat_253 address add 192.168.153.2/24 dev dnat_253_out
+    ip -n dnat_253 link set dnat_253_out up
+    ip -n dnat_253 address add 192.168.0.253/24 dev dnat_253_in
+    ip -n dnat_253 link set dnat_253_in up
+    ip -n private  link set dnat_253_br master $PRIVATE_BRIDGE
+    ip -n private  link set dnat_253_br up
+
+    # bring the bridge up
+    ip -n private link set $PRIVATE_BRIDGE up
+}
+
+do_start()
+{
+    if networking_is_up ; then
+        return 0
+    fi
+
+    log_action_begin_msg "Initializing basic networking"
+    set -e
+    trap do_start_failed EXIT
+
+    create_interfaces
+    configure_networking
+
+    # reload nftables
+    /etc/nftables.conf
+    ip netns exec ssh_dnat /etc/nftables-ssh-dnat.conf
+    ip netns exec dnat_201 /etc/nftables-dnat-201.conf
+    ip netns exec dnat_250 /etc/nftables-dnat-250.conf
+    ip netns exec dnat_253 /etc/nftables-dnat-253.conf
+
+    trap '' EXIT
+    log_action_end_msg 0
+}
+
+do_start_failed()
+{
+    delete_interfaces
+    log_action_end_msg 1
+}
+
+do_stop()
+{
+    log_action_begin_msg "Stopping basic networking"
+    delete_interfaces
+    log_action_end_msg 0
+}
+
+ACTION=$1
+shift
+case $ACTION in
+(start)
+    do_start
+    ;;
+(stop)
+    do_stop
+    ;;
+(restart|reload|force-reload)
+    do_stop
+    do_start
+    ;;
+(status)
+    if basic_networking_is_up ; then
+        echo up
+    else
+        echo down
+    fi
+    ;;
+(*)
+    echo >&2 "Usage: $0 {start|stop|restart|reload|force-reload|status}"
+    exit 3
+    ;;
+esac

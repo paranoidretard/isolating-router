@@ -1,0 +1,4 @@
+USE_LXC_BRIDGE="false"
+
+# Honor system's dnsmasq configuration
+#LXC_DHCP_CONFILE=/etc/dnsmasq.conf

@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+
+from urllib import request
+
+rpz_filename   = '/var/lib/lxc/router/rootfs/etc/bind/rpz-filter.db'
+hosts_file_url = 'https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts'
+
+zone_header = """$TTL 2w
+@ IN SOA localhost. root.localhost. (
+       2   ; serial
+       2w  ; refresh
+       2w  ; retry
+       2w  ; expiry
+       2w) ; minimum
+    IN NS localhost.
+
+onion CNAME .
+*.onion CNAME .
+"""
+
+def generate_rpz_file():
+    num_hosts = 0
+    with open(rpz_filename, 'w') as rpz_file:
+        rpz_file.write(zone_header)
+
+        with request.urlopen(hosts_file_url) as hosts_file:
+            for line in hosts_file:
+                line = line.decode('utf-8').strip()
+                if line.startswith('0.0.0.0 '):
+                    domain = line.split(' ')[1]
+                    rpz_file.write(f'{domain} CNAME .\n')
+                    rpz_file.write(f'*.{domain} CNAME .\n')
+                num_hosts += 1
+
+    print(f'Total hosts in filter: {num_hosts}')
+
+if __name__ == '__main__':
+    generate_rpz_file()

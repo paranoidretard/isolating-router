@@ -1,0 +1,13 @@
+$TTL 2w
+@ IN SOA localhost. root.localhost. (
+       2   ; serial
+       2w  ; refresh
+       2w  ; retry
+       2w  ; expiry
+       2w) ; minimum
+    IN NS localhost.
+
+onion CNAME .
+*.onion CNAME .
+0.0.0.0 CNAME .
+*.0.0.0.0 CNAME .

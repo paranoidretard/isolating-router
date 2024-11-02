@@ -1,0 +1,68 @@
+lxc.apparmor.profile = unconfined
+
+lxc.hook.pre-start = /var/lib/lxc/vpn/networking create-container-interfaces
+
+# public LAN
+lxc.net.0.type = phys
+lxc.net.0.name = public
+lxc.net.0.link = vpn_out
+lxc.net.0.flags = up
+lxc.net.0.ipv4.address = 192.168.210.2/24
+lxc.net.0.ipv4.gateway = 192.168.210.1
+
+# public LAN: VPN bypass
+lxc.net.1.type = phys
+lxc.net.1.name = bypass
+lxc.net.1.link = bypass_out
+lxc.net.1.flags = up
+lxc.net.1.ipv4.address = 192.168.212.2/24
+
+# public LAN transit
+lxc.net.2.type = phys
+lxc.net.2.name = transit
+lxc.net.2.link = vpn_tr_in
+lxc.net.2.flags = up
+lxc.net.2.ipv4.address = 192.168.211.2/24
+
+# iot transit
+lxc.net.3.type = phys
+lxc.net.3.name = transit_iot
+lxc.net.3.link = vpn_itr_in
+lxc.net.3.flags = up
+lxc.net.3.ipv4.address = 192.168.213.1/24
+
+# private LAN
+lxc.net.4.type = phys
+lxc.net.4.name = private
+lxc.net.4.link = veth_private
+lxc.net.4.flags = up
+lxc.net.4.ipv4.address = 192.168.0.2/24
+
+# SSH DNAT
+lxc.net.5.type = phys
+lxc.net.5.name = veth_ssh
+lxc.net.5.link = veth_ssh
+lxc.net.5.flags = up
+lxc.net.5.ipv4.address = 192.168.254.2/24
+
+lxc.hook.mount = /var/lib/lxc/vpn/networking add-container-routes
+lxc.hook.post-stop = /var/lib/lxc/vpn/networking delete-container-interfaces
+
+# Common configuration
+lxc.include = /usr/share/lxc/config/devuan.common.conf
+
+# Container specific configuration
+lxc.rootfs.path = dir:/var/lib/lxc/vpn/rootfs
+lxc.rootfs.options = idmap=container,nodiratime,relatime,commit=120
+lxc.uts.name = vpn
+
+lxc.include = /usr/share/lxc/config/devuan.userns.conf
+lxc.idmap = u 0 200000 65536
+lxc.idmap = g 0 200000 65536
+
+# enable tun
+lxc.cgroup.devices.allow = c 10:200 rwm
+lxc.mount.entry = /dev/net dev/net none bind,create=dir 0 0
+lxc.mount.entry = /dev/net/tun dev/net/tun none bind,create=file
+
+lxc.start.auto = 0

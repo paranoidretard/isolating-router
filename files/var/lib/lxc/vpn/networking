@@ -1,0 +1,132 @@
+#!/bin/sh
+
+. /etc/default/basic-networking
+
+create_container_interfaces()
+{
+    #####################################
+    # unconfigure ssh_dnat namespace
+
+    # move veth_ssh to the root namespace
+    ip -n ssh_dnat link set veth_ssh     netns 1
+    ip -n ssh_dnat link set veth_private netns 1
+
+    # clean nftables
+    ip netns exec ssh_dnat nft flush ruleset
+
+    #####################################
+    # create veth pairs for LXC container
+
+    # public side
+    ip link add dev vpn_out    address 02:00:c0:a8:d2:02 type veth peer name vpn_pub    address 02:00:c0:a8:d2:01
+    ip link add dev bypass_out address 02:00:c0:a8:d4:02 type veth peer name bypass_pub address 02:00:c0:a8:d4:01
+
+    # public side, transit traffic:
+    ip link add dev vpn_tr_in address 02:00:c0:a8:d3:02 type veth peer name vpn_transit address 02:00:c0:a8:d3:01
+
+    # iot interconnection
+    ip link add dev vpn_itr_in address 02:00:c0:a8:d5:01 type veth peer name vpn_itransit address 02:00:c0:a8:d5:02 netns iot
+
+    #####################################
+    # configure IP addresses and routes
+
+    # public side
+    ip address add 192.168.210.1 dev vpn_pub
+    ip link set vpn_pub up
+    ip route add 192.168.210.0/24 dev vpn_pub
+
+    ip address add 192.168.212.1 dev bypass_pub
+    ip link set bypass_pub up
+    ip route add 192.168.212.0/24 dev bypass_pub
+
+    # transit
+    ip address add 192.168.211.1 dev vpn_transit
+    ip link set vpn_transit up
+    ip route add 192.168.211.0/24 dev vpn_transit
+
+    ip -n iot address add 192.168.213.2 dev vpn_itransit
+    ip -n iot link set vpn_itransit up
+    ip -n iot route add 192.168.213.0/24 dev vpn_itransit
+    ip -n iot route replace default via 192.168.213.1 dev vpn_itransit
+
+    # use separate table to route transit traffic to the VPN container
+    ip route add 192.168.211.0/24 dev vpn_transit table 2
+    ip route add default via 192.168.211.2 dev vpn_transit table 2
+
+    # reconfigure IP rule
+    ip rule del fwmark 0x6aea table 1 pref 100 >/dev/null 2>&1 || true
+    ip rule add fwmark 0x6aea table 2 pref 100 >/dev/null 2>&1 || true
+
+    # reload nftables
+    /etc/nftables.conf
+    # more rules:
+    nft add rule nat postrouting oif \{ vpn_transit, vpn_pub, router_pub \} masquerade random,persistent
+    # ISP web interface DNAT
+    nft add rule nat prerouting iif router_pub ip daddr 192.168.200.1 tcp dport 80 dnat to 192.168.0.1
+}
+
+add_container_routes()
+{
+    # This procedure is executed in container's namespace.
+    # things would be simpler if LXC container config had a route
+    # parameter but they don't want to implement that
+    # https://github.com/lxc/lxc/issues/496
+#    INTERFACE=$1
+
+    # a route to IoT subnet
+#    ip route add $IOT_WG_NET dev $INTERFACE
+    return
+}
+
+delete_container_interfaces()
+{
+    ip link del dev vpn_out
+    ip link del dev bypass_out
+    ip link del dev vpn_tr_in
+    ip link del dev vpn_itr_in
+
+    # restore IP rules
+    ip rule del fwmark 0x6aea table 2 pref 100 >/dev/null 2>&1 || true
+    ip rule add fwmark 0x6aea table 1 pref 100 >/dev/null 2>&1 || true
+
+    # configure ssh_dnat namespace (duplicate code, can't merge with basic_networking for denial plausibility reason)
+    ip link set veth_private netns ssh_dnat
+    ip link set veth_ssh     netns ssh_dnat
+
+    ip -n ssh_dnat address add 192.168.0.2    dev veth_private
+    ip -n ssh_dnat address add 192.168.254.2  dev veth_ssh
+    ip -n ssh_dnat link set veth_private up
+    ip -n ssh_dnat link set veth_ssh up
+    ip -n ssh_dnat route add 192.168.0.0/24   dev veth_private
+    ip -n ssh_dnat route add 192.168.254.0/24 dev veth_ssh
+
+    # restore default route in the iot namespace
+    ip -n iot route replace default via 192.168.202.1 dev router_itransit
+
+    # reload nftables
+    /etc/nftables.conf
+    ip netns exec ssh_dnat /etc/nftables-ssh-dnat.conf
+    # one more rule:
+    nft add rule nat postrouting oif router_transit masquerade random,persistent
+}
+
+ACTION=$1
+shift
+case $ACTION in
+(create-container-interfaces)
+    set -e
+    trap 'delete_container_interfaces "$@"' EXIT
+    create_container_interfaces "$@"
+    trap '' EXIT
+    ;;
+(add-container-routes)
+    add_container_routes "$@"
+    ;;
+(delete-container-interfaces)
+    delete_container_interfaces "$@"
+    ;;
+(*)
+    echo >&2 "Usage: $0 {create-container-interfaces|add-container-routes|delete-container-interfaces}"
+    exit 3
+    ;;
+esac

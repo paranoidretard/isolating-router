@@ -1,0 +1,49 @@
+lxc.apparmor.profile = unconfined
+
+lxc.hook.pre-start = /var/lib/lxc/router/networking create-container-interfaces
+
+# public LAN
+lxc.net.0.type = phys
+lxc.net.0.name = public
+lxc.net.0.link = router_out
+lxc.net.0.flags = up
+lxc.net.0.ipv4.address = 192.168.200.2/24
+lxc.net.0.ipv4.gateway = 192.168.200.1
+
+# public LAN transit
+lxc.net.1.type = phys
+lxc.net.1.name = transit
+lxc.net.1.link = router_tr_in
+lxc.net.1.flags = up
+lxc.net.1.ipv4.address = 192.168.201.2/24
+
+# iot transit
+lxc.net.2.type = phys
+lxc.net.2.name = transit_iot
+lxc.net.2.link = router_itr_in
+lxc.net.2.flags = up
+lxc.net.2.ipv4.address = 192.168.202.1/24
+
+# private LAN
+lxc.net.3.type = phys
+lxc.net.3.name = private
+lxc.net.3.link = router_in
+lxc.net.3.flags = up
+lxc.net.3.ipv4.address = 192.168.0.1/24
+
+lxc.hook.mount = /var/lib/lxc/router/networking add-container-routes
+lxc.hook.post-stop = /var/lib/lxc/router/networking delete-container-interfaces
+
+# Common configuration
+lxc.include = /usr/share/lxc/config/devuan.common.conf
+
+# Container specific configuration
+lxc.rootfs.path = dir:/var/lib/lxc/router/rootfs
+lxc.rootfs.options = idmap=container,nodiratime,relatime,commit=120
+lxc.uts.name = router
+
+lxc.include = /usr/share/lxc/config/devuan.userns.conf
+lxc.idmap = u 0 100000 65536
+lxc.idmap = g 0 100000 65536
+
+lxc.start.auto = 1

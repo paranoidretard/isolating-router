@@ -1,0 +1,14 @@
+$TTL    3600
+@   IN  SOA (
+            ns.onion.  ; MNAME
+            hostmaster.onion.  ; RNAME
+            1646940472  ; SERIAL
+            3600  ; REFRESH
+            60    ; RETRY
+            1W    ; EXPIRY
+            60    ; MINIMUM Negative Cache TTL
+            )
+@  IN  NS  ns.onion.
+
+@  IN  A   0.0.0.0
+*  IN  A   0.0.0.0
