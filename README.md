@@ -239,7 +239,7 @@ One stage of double NAT is performed in a separate namespace.
 ### DNS
 
 The router runs master DNS server which provides the following zones:
-* rpz-filter: based on [https://github.com/StevenBlack/hosts] and [https://www.circuitshelter.com/posts/bind9-rpz-firewall].
+* rpz-filter: based on https://github.com/StevenBlack/hosts and https://www.circuitshelter.com/posts/bind9-rpz-firewall.
 * rpz-home: host names in the IoT network.
 * onion: prevents all requests for this zone from leaking outside.
 
