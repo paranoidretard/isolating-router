@@ -7,7 +7,7 @@
 #include <string.h>
 #include <unistd.h>
 
-// bitmap array
+// bitmap array for class C networks: 24 bits minus 3 bits that make up one byte
 uint8_t bitmap[1 << 21] = {};
 
 // forward declarations

@@ -26,7 +26,7 @@ char*    set_hit;
 char*    set_miss;
 uint32_t queue;
 
-// bitmap array
+// bitmap array for class C networks: 24 bits minus 3 bits that make up one byte
 uint8_t bitmap[1 << 21] = {};
 
 // netlink socket
@@ -36,7 +36,7 @@ uint32_t nl_portid;
 
 static void add_to_set(uint32_t ip_addr, char* set_name)
 /*
- * Add IP address to set.
+ * Add IP address to the set.
  */
 {
     struct nftnl_set* set = nullptr;
